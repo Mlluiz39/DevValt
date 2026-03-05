@@ -126,3 +126,8 @@ Thumbs.db
 # Build directories
 dist/
 build/
+
+# TestSprite
+.testsprite/
+testsprite_tests/
+
