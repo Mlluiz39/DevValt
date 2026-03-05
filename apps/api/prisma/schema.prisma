@@ -1,0 +1,373 @@
+// DevVault - Complete Prisma Schema
+// Enterprise-grade secure API Key Management SaaS
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum PlanType {
+  SOLO
+  TEAM
+  BUSINESS
+  ENTERPRISE
+}
+
+enum SecretType {
+  API_KEY
+  SECRET_KEY
+  DATABASE_URL
+  OAUTH_TOKEN
+  SSH_KEY
+  CERTIFICATE
+  ENVIRONMENT_VARIABLE
+  CUSTOM
+}
+
+enum AuditAction {
+  // Secret actions
+  SECRET_CREATED
+  SECRET_READ
+  SECRET_UPDATED
+  SECRET_DELETED
+  SECRET_ROTATED
+  // Auth actions
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  LOGOUT
+  TOKEN_REFRESHED
+  TWO_FACTOR_ENABLED
+  TWO_FACTOR_DISABLED
+  PASSWORD_CHANGED
+  // Organization actions
+  ORG_CREATED
+  ORG_UPDATED
+  MEMBER_INVITED
+  MEMBER_JOINED
+  MEMBER_REMOVED
+  MEMBER_ROLE_CHANGED
+  // API Key actions
+  API_KEY_CREATED
+  API_KEY_ROTATED
+  API_KEY_DELETED
+  API_KEY_USED
+  // Project actions
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_DELETED
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+}
+
+// ============================================================
+// USER
+// ============================================================
+
+model User {
+  id                   String     @id @default(uuid())
+  email                String     @unique
+  hashedPassword       String     @map("hashed_password")
+  name                 String
+  avatarUrl            String?    @map("avatar_url")
+  status               UserStatus @default(PENDING_VERIFICATION)
+  emailVerifiedAt      DateTime?  @map("email_verified_at")
+  
+  // 2FA
+  twoFactorEnabled     Boolean    @default(false) @map("two_factor_enabled")
+  twoFactorSecret      String?    @map("two_factor_secret") // encrypted TOTP secret
+  twoFactorBackupCodes String[]   @map("two_factor_backup_codes") // hashed backup codes
+
+  // Security
+  lastLoginAt          DateTime?  @map("last_login_at")
+  lastLoginIp          String?    @map("last_login_ip")
+  loginAttempts        Int        @default(0) @map("login_attempts")
+  lockedUntil          DateTime?  @map("locked_until")
+
+  // Timestamps
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
+  deletedAt            DateTime?  @map("deleted_at")
+
+  // Relations
+  memberships          OrganizationMember[]
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]
+  apiKeys              ApiKey[]
+  ownedOrganizations   Organization[] @relation("OrganizationOwner")
+
+  @@map("users")
+  @@index([email])
+  @@index([status])
+}
+
+// ============================================================
+// AUTH
+// ============================================================
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  tokenHash   String    @unique @map("token_hash") // hashed, never stored plain
+  deviceInfo  String?   @map("device_info")
+  ipAddress   String?   @map("ip_address")
+  expiresAt   DateTime  @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+// ============================================================
+// ORGANIZATION (Multi-tenant)
+// ============================================================
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  logoUrl     String?  @map("logo_url")
+  ownerId     String   @map("owner_id")
+  
+  // Plan
+  planType    PlanType @default(SOLO) @map("plan_type")
+
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  // Relations
+  owner        User                 @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  members      OrganizationMember[]
+  projects     Project[]
+  subscription Subscription?
+  apiKeys      ApiKey[]
+  auditLogs    AuditLog[]
+
+  @@map("organizations")
+  @@index([slug])
+  @@index([ownerId])
+}
+
+model OrganizationMember {
+  id             String     @id @default(uuid())
+  organizationId String     @map("organization_id")
+  userId         String     @map("user_id")
+  role           MemberRole @default(MEMBER)
+  invitedAt      DateTime?  @map("invited_at")
+  joinedAt       DateTime?  @map("joined_at")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("organization_members")
+  @@index([organizationId])
+  @@index([userId])
+}
+
+// ============================================================
+// PROJECT
+// ============================================================
+
+model Project {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  slug           String
+  description    String?
+  color          String?  // Hex color for UI
+  
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  secrets        Secret[]
+  auditLogs      AuditLog[]
+
+  @@unique([organizationId, slug])
+  @@map("projects")
+  @@index([organizationId])
+}
+
+// ============================================================
+// SECRET (Zero-Knowledge Encrypted)
+// ============================================================
+
+model Secret {
+  id             String     @id @default(uuid())
+  projectId      String     @map("project_id")
+  name           String
+  description    String?
+  type           SecretType @default(CUSTOM)
+  tags           String[]
+
+  // Zero-Knowledge encryption fields
+  // The server NEVER stores or processes plaintext values
+  encryptedValue String     @map("encrypted_value") // AES-256-GCM encrypted
+  iv             String     // Initialization Vector (base64)
+  authTag        String     @map("auth_tag")        // GCM auth tag (base64)
+  salt           String     // Argon2id salt (base64)
+
+  // Metadata (never encrypted - used for display only)
+  keyHint        String?    @map("key_hint")        // e.g., "sk_...xxxx" - last 4 chars only
+  expiresAt      DateTime?  @map("expires_at")
+
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+  deletedAt      DateTime?  @map("deleted_at")
+
+  project        Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  auditLogs      AuditLog[]
+
+  @@map("secrets")
+  @@index([projectId])
+  @@index([type])
+  @@index([expiresAt])
+}
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id             String      @id @default(uuid())
+  organizationId String?     @map("organization_id")
+  projectId      String?     @map("project_id")
+  secretId       String?     @map("secret_id")
+  userId         String?     @map("user_id")
+  action         AuditAction
+  
+  // Context
+  ipAddress      String?     @map("ip_address")
+  userAgent      String?     @map("user_agent")
+  metadata       Json?       // Additional context (never sensitive data)
+  
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  project        Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  secret         Secret?       @relation(fields: [secretId], references: [id], onDelete: SetNull)
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+  @@index([organizationId])
+  @@index([userId])
+  @@index([secretId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ============================================================
+// API KEY (for CI/CD integration)
+// ============================================================
+
+model ApiKey {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  userId         String       @map("user_id")
+  name           String
+  keyHash        String       @unique @map("key_hash")  // SHA-256 hashed
+  keyPrefix      String       @map("key_prefix")        // "dvk_" + first 8 chars (for display)
+  status         ApiKeyStatus @default(ACTIVE)
+  
+  // Permissions
+  scopes         String[]     // e.g., ["secrets:read", "secrets:write"]
+  projectIds     String[]     @map("project_ids") // allowed projects, empty = all
+  
+  // Usage tracking
+  lastUsedAt     DateTime?    @map("last_used_at")
+  lastUsedIp     String?      @map("last_used_ip")
+  usageCount     Int          @default(0) @map("usage_count")
+  
+  expiresAt      DateTime?    @map("expires_at")
+  revokedAt      DateTime?    @map("revoked_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@map("api_keys")
+  @@index([organizationId])
+  @@index([keyHash])
+  @@index([status])
+}
+
+// ============================================================
+// SUBSCRIPTION / PLAN
+// ============================================================
+
+model Subscription {
+  id                 String             @id @default(uuid())
+  organizationId     String             @unique @map("organization_id")
+  planType           PlanType           @map("plan_type")
+  status             SubscriptionStatus @default(TRIALING)
+  
+  // Limits
+  maxSecrets         Int                @map("max_secrets")
+  maxProjects        Int                @map("max_projects")
+  maxMembers         Int                @map("max_members")
+  maxApiKeys         Int                @map("max_api_keys")
+  
+  // Billing (Stripe integration placeholder)
+  stripeCustomerId   String?            @map("stripe_customer_id")
+  stripeSubId        String?            @map("stripe_sub_id")
+  
+  trialEndsAt        DateTime?          @map("trial_ends_at")
+  currentPeriodStart DateTime?          @map("current_period_start")
+  currentPeriodEnd   DateTime?          @map("current_period_end")
+  canceledAt         DateTime?          @map("canceled_at")
+  
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+  @@index([organizationId])
+  @@index([status])
+}
