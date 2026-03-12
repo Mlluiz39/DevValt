@@ -5,7 +5,7 @@ RUN apk add --no-cache libc6-compat
 # Development stage
 FROM base AS development
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 COPY . .
 RUN npx prisma generate
 EXPOSE 3001
@@ -14,7 +14,7 @@ CMD ["npm", "run", "dev"]
 # Builder stage
 FROM base AS builder
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install --only=production
 COPY . .
 RUN npx prisma generate
 RUN npm run build
