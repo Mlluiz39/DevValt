@@ -1,6 +1,6 @@
-import { prisma } from '../../database/prisma.client';
-import { AuditAction } from '@prisma/client';
-import { logger } from '../../config/logger';
+import { prisma } from "../../database/prisma.client";
+import { AuditAction, Prisma } from "@prisma/client";
+import { logger } from "../../config/logger";
 
 export interface AuditLogEntry {
   organizationId?: string;
@@ -35,14 +35,14 @@ export class AuditService {
           action: entry.action,
           ipAddress: entry.ipAddress,
           userAgent: entry.userAgent,
-          metadata: sanitizedMetadata,
+          metadata: sanitizedMetadata as Prisma.InputJsonValue,
         },
       });
     } catch (error) {
       // Audit failures should not break the main operation
-      logger.error('Failed to write audit log', {
+      logger.error("Failed to write audit log", {
         action: entry.action,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: error instanceof Error ? error.message : "Unknown error",
       });
     }
   }
@@ -60,9 +60,17 @@ export class AuditService {
       secretId?: string;
       fromDate?: Date;
       toDate?: Date;
-    } = {}
+    } = {},
   ) {
-    const { page = 1, limit = 50, action, userId, secretId, fromDate, toDate } = options;
+    const {
+      page = 1,
+      limit = 50,
+      action,
+      userId,
+      secretId,
+      fromDate,
+      toDate,
+    } = options;
     const skip = (page - 1) * limit;
 
     const where = {
@@ -83,7 +91,7 @@ export class AuditService {
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         select: {
           id: true,
           action: true,
@@ -105,25 +113,36 @@ export class AuditService {
     };
   }
 
-  private sanitizeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  private sanitizeMetadata(
+    metadata: Record<string, unknown>,
+  ): Record<string, unknown> {
     const FORBIDDEN_KEYS = [
-      'password', 'secret', 'token', 'key', 'encryptedValue',
-      'iv', 'authTag', 'salt', 'hash', 'credential',
+      "password",
+      "secret",
+      "token",
+      "key",
+      "encryptedValue",
+      "iv",
+      "authTag",
+      "salt",
+      "hash",
+      "credential",
     ];
 
-    return Object.entries(metadata).reduce((acc, [k, v]) => {
-      const isForbidden = FORBIDDEN_KEYS.some(fk =>
-        k.toLowerCase().includes(fk.toLowerCase())
-      );
+    return Object.entries(metadata).reduce(
+      (acc, [k, v]) => {
+        const isForbidden = FORBIDDEN_KEYS.some((fk) =>
+          k.toLowerCase().includes(fk.toLowerCase()),
+        );
 
-      if (!isForbidden) {
-        acc[k] = typeof v === 'object' && v !== null
-          ? '[complex value]'
-          : v;
-      }
+        if (!isForbidden) {
+          acc[k] = typeof v === "object" && v !== null ? "[complex value]" : v;
+        }
 
-      return acc;
-    }, {} as Record<string, unknown>);
+        return acc;
+      },
+      {} as Record<string, unknown>,
+    );
   }
 }
 

@@ -28,7 +28,7 @@ export default function DashboardLayout({
   const handleSignOut = () => {
     localStorage.removeItem('devvault_token');
     sessionStorage.removeItem('master_password');
-    router.push('/login');
+    router.push('/');
   };
 
   if (!authenticated) {

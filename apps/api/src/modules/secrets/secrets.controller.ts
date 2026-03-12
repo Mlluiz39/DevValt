@@ -1,7 +1,7 @@
-import { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
-import { secretsService } from './secrets.service';
-import { SecretType } from '@prisma/client';
+import { Request, Response, NextFunction } from "express";
+import { z } from "zod";
+import { secretsService } from "./secrets.service";
+import { SecretType } from "@prisma/client";
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
@@ -9,10 +9,10 @@ import { SecretType } from '@prisma/client';
 const base64Regex = /^[A-Za-z0-9+/]+=*$/;
 
 const encryptedPayloadSchema = z.object({
-  encryptedValue: z.string().min(1).regex(base64Regex, 'Must be base64'),
-  iv: z.string().min(16).regex(base64Regex, 'Must be base64'), // 12 bytes base64 = 16 chars
-  authTag: z.string().min(22).regex(base64Regex, 'Must be base64'), // 16 bytes base64
-  salt: z.string().min(43).regex(base64Regex, 'Must be base64'), // 32 bytes base64
+  encryptedValue: z.string().min(1).regex(base64Regex, "Must be base64"),
+  iv: z.string().min(16).regex(base64Regex, "Must be base64"), // 12 bytes base64 = 16 chars
+  authTag: z.string().min(22).regex(base64Regex, "Must be base64"), // 16 bytes base64
+  salt: z.string().min(43).regex(base64Regex, "Must be base64"), // 32 bytes base64
 });
 
 const createSecretSchema = encryptedPayloadSchema.extend({
@@ -29,8 +29,8 @@ const updateSecretSchema = z.object({
   description: z.string().max(1000).optional(),
   type: z.nativeEnum(SecretType).optional(),
   tags: z.array(z.string().max(50)).max(20).optional(),
-  keyHint: z.string().max(50).optional().nullable(),
-  expiresAt: z.coerce.date().optional().nullable(),
+  keyHint: z.string().max(50).optional(),
+  expiresAt: z.coerce.date().optional(),
   // Optional re-encryption
   encryptedValue: z.string().min(1).regex(base64Regex).optional(),
   iv: z.string().min(16).regex(base64Regex).optional(),
@@ -72,7 +72,11 @@ export class SecretsController {
       const { orgId, projectId } = req.params;
       const query = listQuerySchema.parse(req.query);
 
-      const result = await secretsService.listByProject(projectId, orgId, query);
+      const result = await secretsService.listByProject(
+        projectId,
+        orgId,
+        query,
+      );
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -97,7 +101,8 @@ export class SecretsController {
       res.json({
         success: true,
         data: secret,
-        _note: 'Decrypt this on the client using your master password. The server cannot decrypt this.',
+        _note:
+          "Decrypt this on the client using your master password. The server cannot decrypt this.",
       });
     } catch (error) {
       next(error);
@@ -126,7 +131,12 @@ export class SecretsController {
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
       const { orgId, secretId } = req.params;
-      const result = await secretsService.delete(secretId, orgId, req.user!.id, req.ip);
+      const result = await secretsService.delete(
+        secretId,
+        orgId,
+        req.user!.id,
+        req.ip,
+      );
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
